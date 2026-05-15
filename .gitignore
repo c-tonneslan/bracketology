@@ -1,0 +1,7 @@
+data/*.parquet
+models/*.json
+models/*.parquet
+__pycache__/
+.pytest_cache/
+*.pyc
+.venv/
