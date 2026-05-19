@@ -73,6 +73,18 @@ def main():
     feats = Xtr.columns.tolist()
     os.makedirs(args.out_dir, exist_ok=True)
 
+    # Carve a held-out slice off train for xgb early stopping so we
+    # never peek at the tournament-2023+24 holdout during training.
+    rng = np.random.default_rng(13)
+    val_idx = rng.choice(len(Xtr), size=int(len(Xtr) * 0.1), replace=False)
+    val_mask = np.zeros(len(Xtr), dtype=bool)
+    val_mask[val_idx] = True
+    Xva = Xtr.iloc[val_mask].reset_index(drop=True)
+    yva = ytr[val_mask]
+    Xtr = Xtr.iloc[~val_mask].reset_index(drop=True)
+    ytr = ytr[~val_mask]
+    print(f"  carved val: {len(Xva):,}  train after carve: {len(Xtr):,}")
+
     results = []
     # naive: home team always wins (about 60% of regular-season games)
     results.append(evaluate("constant_0.5", yte, np.full_like(yte, 0.5, dtype=float)))
@@ -93,14 +105,15 @@ def main():
     p_logit = logit.predict_proba(Xte_s)[:, 1]
     results.append(evaluate("logistic", yte, p_logit))
 
-    # xgboost
+    # xgboost with early stopping on the carved val slice
     xgb = XGBClassifier(
-        n_estimators=400, max_depth=4, learning_rate=0.05,
+        n_estimators=800, max_depth=4, learning_rate=0.05,
         subsample=0.85, colsample_bytree=0.85, reg_lambda=1.0,
         objective="binary:logistic", eval_metric="logloss",
-        tree_method="hist", n_jobs=-1,
+        tree_method="hist", early_stopping_rounds=25, n_jobs=-1,
     )
-    xgb.fit(Xtr.values, ytr, eval_set=[(Xte.values, yte)], verbose=False)
+    xgb.fit(Xtr.values, ytr, eval_set=[(Xva.values, yva)], verbose=False)
+    print(f"xgb stopped at iteration {xgb.best_iteration} (val logloss {xgb.best_score:.4f})")
     p_xgb = xgb.predict_proba(Xte.values)[:, 1]
     results.append(evaluate("xgboost", yte, p_xgb))
 
