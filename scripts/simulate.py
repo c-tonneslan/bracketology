@@ -59,6 +59,15 @@ def simulate(teams_df, model, n_sims, rng):
             if i == j:
                 continue
             probs[i][j] = predict(model, teams_df.iloc[i], teams_df.iloc[j], neutral=True)
+    # XGBoost isn't guaranteed to be perfectly anti-symmetric across a
+    # sign-flip of every feature, so probs[i][j] + probs[j][i] usually
+    # drifts a hair off 1. Average so the sim result doesn't depend on
+    # which team got slotted left in the bracket file.
+    for i in range(n):
+        for j in range(i + 1, n):
+            avg = (probs[i][j] + (1 - probs[j][i])) / 2
+            probs[i][j] = avg
+            probs[j][i] = 1 - avg
 
     for s in range(n_sims):
         alive = list(range(n))
